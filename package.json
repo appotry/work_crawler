@@ -114,6 +114,7 @@
 	"dependencies" : {
 		"electron-updater" : "latest",
 		"gh-updater" : "latest",
-		"cejs" : "latest"
+		"cejs" : "latest",
+		"https-proxy-agent" : "5.0.1"
 	}
 }

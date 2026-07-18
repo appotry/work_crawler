@@ -14,6 +14,38 @@ CeL.run([ 'application.storage.EPUB'
 // CeL.detect_HTML_language()
 , 'application.locale' ]);
 
+function get_apollo_state(html) {
+	var matched = html.match(
+	// Kakuyomu's current work page is rendered by Next.js.
+	/<script id="__NEXT_DATA__" type="application\/json">([\s\S]+?)<\/script>/);
+	if (!matched) {
+		return;
+	}
+	try {
+		return JSON.parse(matched[1]).props.pageProps.__APOLLO_STATE__;
+	} catch (error) {
+		CeL.error('Failed to parse Kakuyomu __NEXT_DATA__: ' + error.message);
+	}
+}
+
+function resolve_reference(state, reference) {
+	return reference && reference.__ref && state[reference.__ref];
+}
+
+function get_work_from_state(state) {
+	if (!state || !state.ROOT_QUERY) {
+		return;
+	}
+	var work_reference;
+	Object.keys(state.ROOT_QUERY).some(function(key) {
+		if (key.startsWith('work(')) {
+			work_reference = state.ROOT_QUERY[key];
+			return true;
+		}
+	});
+	return resolve_reference(state, work_reference);
+}
+
 var crawler = new CeL.work_crawler({
 	// auto_create_ebook, automatic create ebook
 	// MUST includes CeL.application.locale!
@@ -44,6 +76,24 @@ var crawler = new CeL.work_crawler({
 		return 'works/' + work_id;
 	},
 	parse_work_data : function(html, get_label) {
+		var state = get_apollo_state(html), work = get_work_from_state(state);
+		if (work) {
+			var author = resolve_reference(state, work.author);
+			return {
+				title : work.title,
+				status : [ work.serialStatus === 'COMPLETED' ? '完結済'
+						: work.serialStatus ],
+				author : author && (author.activityName || author.name),
+				last_update : work.lastEpisodePublishedAt || work.editedAt,
+				catchphrase : work.catchphrase,
+				description : work.introduction,
+				image : work.ogImageUrl,
+				genre : work.genre,
+				tags : work.tagLabels,
+				site_name : 'カクヨム'
+			};
+		}
+
 		var work_data = {
 			// 必要屬性：須配合網站平台更改。
 			title : get_label(html.between('<h1 id="workTitle">', '</h1>')),
@@ -99,6 +149,29 @@ var crawler = new CeL.work_crawler({
 		return work_data;
 	},
 	get_chapter_list : function(work_data, html) {
+		var state = get_apollo_state(html), work = get_work_from_state(state);
+		if (work && work.tableOfContentsV2) {
+			work_data.chapter_list = [];
+			work.tableOfContentsV2.forEach(function(toc_reference) {
+				var toc = resolve_reference(state, toc_reference);
+				if (!toc || !toc.episodeUnions) {
+					return;
+				}
+				toc.episodeUnions.forEach(function(episode_reference) {
+					var episode = resolve_reference(state, episode_reference);
+					if (!episode || !episode.id) {
+						return;
+					}
+					work_data.chapter_list.push({
+						url : '/works/' + work.id + '/episodes/' + episode.id,
+						date : new Date(episode.publishedAt),
+						title : episode.title
+					});
+				});
+			});
+			return;
+		}
+
 		work_data.chapter_list = [];
 		html.between('<div class="widget-toc-main">', '</div>')
 		//
@@ -125,6 +198,7 @@ var crawler = new CeL.work_crawler({
 		var part_title = [], sub_title,
 		// <div class="widget-episodeBody js-episode-body" ...>
 		header = html.between('<header id="contentMain-header">', '</header>'),
+		PATTERN_title = /<p ([^<>]+)>([\s\S]+?)<\/p>/g,
 		/**
 		 * 2018/5/15 kakuyomu 調整了標題的HTML原始碼格式
 		 * 
@@ -141,7 +215,7 @@ var crawler = new CeL.work_crawler({
 
 		</code>
 		 */
-		PATTERN_title = /<p ([^<>]+)>([\s\S]+?)<\/p>/g, matched;
+		matched;
 
 		while (matched = PATTERN_title.exec(header)) {
 			if (matched[1].includes('Title')) {
@@ -163,6 +237,32 @@ var crawler = new CeL.work_crawler({
 });
 
 // ----------------------------------------------------------------------------
+
+// CeJS 4.5.10's built-in HTTPS proxy agent does not send SNI. Use a modern
+// proxy agent while keeping the command-line `proxy=` option compatible.
+var proxy_argument_index = process.argv.findIndex(function(argument) {
+	return argument.startsWith('proxy=');
+}), proxy_server = proxy_argument_index >= 0
+		? process.argv[proxy_argument_index].slice('proxy='.length)
+		: process.env.HTTPS_PROXY || process.env.https_proxy
+				|| process.env.HTTP_PROXY || process.env.http_proxy;
+
+if (proxy_server) {
+	var HttpsProxyAgent = require('https-proxy-agent'),
+	proxy_agent = new HttpsProxyAgent(proxy_server);
+	// CeJS compares this value with the destination protocol and otherwise
+	// replaces the custom agent with a direct HTTPS agent.
+	proxy_agent.protocol = undefined;
+	crawler.get_URL_options.agent = proxy_agent;
+	delete process.env.HTTPS_PROXY;
+	delete process.env.http_proxy;
+	if (proxy_argument_index >= 0) {
+		process.argv.splice(proxy_argument_index, 1);
+		// work_crawler_loader.js has already parsed process.argv at this point.
+		delete CeL.env.arg_hash.proxy;
+	}
+	CeL.info('Kakuyomu: using proxy ' + proxy_server);
+}
 
 // CeL.set_debug(3);
 
