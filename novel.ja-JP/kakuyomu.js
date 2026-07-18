@@ -53,6 +53,11 @@ var crawler = new CeL.work_crawler({
 	// recheck:從頭檢測所有作品之所有章節。
 	// 'changed': 若是已變更，例如有新的章節，則重新下載/檢查所有章節內容。
 	recheck : 'changed',
+	// `regenerate` is a per-run state. Inheriting it from the work JSON makes a
+	// normal resume rebuild the EPUB from only the last downloaded chapter.
+	reset_work_data_properties : {
+		regenerate : true
+	},
 
 	base_URL : 'https://kakuyomu.jp/',
 
