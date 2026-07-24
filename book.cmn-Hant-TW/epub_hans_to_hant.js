@@ -38,26 +38,38 @@ function guess_work_title(epub_directory) {
 	if (work_title)
 		return work_title;
 
+	function test_and_set_work_title(_work_title) {
+		if (!_work_title || !(_work_title = _work_title.trim()))
+			return;
+
+		// 偵測作品標題：
+		CeL.info('guess_work_title: 《' + _work_title + '》');
+
+		// console.trace([ _work_title, matched ]);
+		return work_title = _work_title;
+	}
+
 	var matched = epub_directory.match(/《([^《》]+)》$/);
-	if (matched) {
-		work_title = matched[1];
-	}
-	if (!work_title) {
-		work_title = epub_directory.match(/[^\\\/]+$/)[0].replace(/\.[^.]+$/,
-				'');
-	}
+	// 作品標題放在最後面，且用書名號《》括起來。
+	if (matched && test_and_set_work_title(matched[1]))
+		return work_title;
+
+	work_title = epub_directory
+	// 取最後一個目錄名稱，去掉副檔名。
+	.match(/[^\\\/]+$/)[0].replace(/\.[^.]+$/, '');
+
 	// Calibre2 轉存時，會存成 "work title - author.epub"
 	matched = work_title.match(/^(.+?) - (.+)$/);
-	if (matched)
-		work_title = matched[1].trim();
+	if (matched && test_and_set_work_title(matched[1]))
+		return work_title;
 
-	if (work_title) {
-		// 偵測作品標題：
-		CeL.info('guess_work_title: 《' + work_title + '》');
-	}
+	// e.g., "(一般小説) [作者] 書名 [书吧 20240515 20章]"
+	matched = work_title.match(/^\((.+?)\) *\[(.+?)\] *(.+?)\[.+?\]/);
+	if (matched && test_and_set_work_title(matched[3]))
+		return work_title;
 
-	// console.trace([ work_title, matched ]);
-	return work_title;
+	// 將全部名稱當作書名。
+	return test_and_set_work_title(work_title);
 }
 
 function handle_files() {
